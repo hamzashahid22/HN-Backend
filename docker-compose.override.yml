@@ -1,18 +1,18 @@
 services:
   postgres:
     ports:
-      - "5432:5432"
+      - "55433:5432"
 
   redis:
     ports:
-      - "6379:6379"
+      - "56379:6379"
 
   kafka:
     ports:
-      - "9092:9092"
+      - "59092:9092"
     environment:
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:59092
 
   clamav:
     ports:
-      - "3310:3310"
+      - "53310:3310"

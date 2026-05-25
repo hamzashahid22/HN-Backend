@@ -12,12 +12,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    ports:
+      - "55433:5432"
+
 
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
+    ports:
+      - "56379:6379"
+
 
   kafka:
     image: apache/kafka:4.0.2
@@ -38,11 +44,17 @@ services:
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     volumes:
       - kafka_data:/tmp/kraft-combined-logs
+    ports:
+      - "59092:9092"
+
 
   clamav:
     image: clamav/clamav:stable
     volumes:
       - clamav_data:/var/lib/clamav
+    ports:
+      - "53310:3310"
+
 
   livekit:
     image: livekit/livekit-server:latest

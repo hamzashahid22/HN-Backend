@@ -9,10 +9,13 @@ coverage/
 !.env.example
 !.env.production.example
 
-storage/
+/storage/
 uploads/
 tmp/
 temp/
+
+!src/storage/
+!src/storage/*.ts
 
 prisma/*.db
 prisma/*.db-journal
