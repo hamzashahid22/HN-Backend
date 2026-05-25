@@ -1,0 +1,385 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum MemberRole {
+  MEMBER
+  ADMIN
+  OWNER
+}
+
+enum MfaPolicy {
+  OFF
+  OPTIONAL
+  REQUIRED
+}
+
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum MediaKind {
+  ENCRYPTED_CHAT
+  AVATAR
+  ADMIN_ASSET
+}
+
+enum MediaState {
+  INITIATED
+  UPLOADED
+  SCANNING
+  READY
+  QUARANTINED
+  FAILED
+}
+
+enum CallScope {
+  DIRECT
+  GROUP
+}
+
+enum CallKind {
+  AUDIO
+}
+
+enum CallStatus {
+  RINGING
+  ACCEPTED
+  MISSED
+  REJECTED
+  ENDED
+}
+
+enum CallParticipantStatus {
+  INVITED
+  JOINED
+  DECLINED
+  LEFT
+  MISSED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  phone        String     @unique
+  displayName  String?
+  passwordHash String
+  mfaPolicy    MfaPolicy  @default(OPTIONAL)
+  totpSecretEncrypted String?
+  recoveryCodeHashes  Json?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  devices       Device[]
+  sessions      Session[]
+  memberships   ConversationMember[]
+  sentMessages  Message[]
+  mediaFiles    MediaFile[]
+  pushTokens    PushToken[]
+  auditLogs     AuditLog[]
+  blockedUsers  BlockedUser[] @relation("Blocker")
+  blockedBy     BlockedUser[] @relation("Blocked")
+  callsStarted  Call[] @relation("CallCaller")
+  callParticipants CallParticipant[]
+}
+
+model Device {
+  id          String   @id @default(cuid())
+  userId      String
+  registrationId Int?
+  label       String?
+  platform    String
+  appVersion  String?
+  trustedAt   DateTime @default(now())
+  lastSeenAt  DateTime?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identityKey IdentityKey?
+  signedPreKeys SignedPreKey[]
+  oneTimePreKeys OneTimePreKey[]
+  kyberPreKeys KyberPreKey[]
+  sessions    Session[]
+  pushTokens  PushToken[]
+}
+
+model IdentityKey {
+  id        String   @id @default(cuid())
+  userId    String
+  deviceId  String   @unique
+  publicKey String
+  createdAt DateTime @default(now())
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model SignedPreKey {
+  id          String   @id @default(cuid())
+  userId      String
+  deviceId    String
+  keyId       Int
+  publicKey   String
+  signature   String
+  createdAt   DateTime @default(now())
+  rotatedAt   DateTime?
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, keyId])
+}
+
+model OneTimePreKey {
+  id         String    @id @default(cuid())
+  userId     String
+  deviceId   String
+  keyId      Int
+  publicKey  String
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  device     Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, keyId])
+  @@index([userId, deviceId, consumedAt])
+}
+
+model KyberPreKey {
+  id         String    @id @default(cuid())
+  userId     String
+  deviceId   String
+  keyId      Int
+  publicKey  String
+  signature  String
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  device     Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, keyId])
+  @@index([userId, deviceId, consumedAt])
+}
+
+model Session {
+  id               String        @id @default(cuid())
+  userId           String
+  deviceId         String?
+  refreshTokenHash String
+  status           SessionStatus @default(ACTIVE)
+  expiresAt        DateTime
+  createdAt        DateTime      @default(now())
+  revokedAt        DateTime?
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device           Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+}
+
+model MfaChallenge {
+  id        String   @id @default(cuid())
+  userId    String
+  purpose   String
+  codeHash  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model Conversation {
+  id             String           @id @default(cuid())
+  type           ConversationType
+  createdById    String
+  lastMessageAt  DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  members        ConversationMember[]
+  messages       Message[]
+  group          Group?
+  mediaFiles     MediaFile[]
+  calls          Call[]
+}
+
+model ConversationMember {
+  id             String     @id @default(cuid())
+  conversationId String
+  userId         String
+  role           MemberRole @default(MEMBER)
+  joinedAt       DateTime   @default(now())
+  removedAt      DateTime?
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId, conversationId])
+}
+
+model Group {
+  id             String   @id @default(cuid())
+  conversationId String   @unique
+  name           String
+  avatarMediaId  String?
+  senderKeyVersion Int    @default(1)
+  senderKeyRotatedAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+model GroupInvite {
+  id             String   @id @default(cuid())
+  conversationId String
+  invitedUserId  String
+  invitedById    String
+  acceptedAt     DateTime?
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+}
+
+model Message {
+  id               String   @id @default(cuid())
+  conversationId   String
+  senderUserId     String
+  senderDeviceId   String
+  clientMessageId  String
+  ciphertext       String
+  encryptionHeader Json
+  mediaFileId      String?
+  serverCreatedAt  DateTime @default(now())
+  editedAt         DateTime?
+  deletedAt        DateTime?
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender           User         @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+  deliveries       MessageDelivery[]
+  reads            MessageRead[]
+
+  @@unique([clientMessageId, senderUserId])
+  @@index([conversationId, serverCreatedAt])
+}
+
+model MessageDelivery {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  deviceId  String
+  deliveredAt DateTime @default(now())
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, deviceId])
+}
+
+model MessageRead {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+}
+
+model MediaFile {
+  id                 String     @id @default(cuid())
+  kind               MediaKind
+  state              MediaState @default(INITIATED)
+  conversationId     String?
+  uploaderUserId     String
+  originalName       String?
+  mimeType           String?
+  storageKey         String?
+  sha256             String?
+  encryptedSizeBytes Int?
+  plainSizeBytes     Int?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  conversation       Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  uploader           User          @relation(fields: [uploaderUserId], references: [id], onDelete: Cascade)
+  variants           MediaVariant[]
+}
+
+model MediaVariant {
+  id          String   @id @default(cuid())
+  mediaFileId String
+  name        String
+  storageKey  String
+  width       Int?
+  height      Int?
+  sizeBytes   Int
+  createdAt   DateTime @default(now())
+  mediaFile   MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaFileId, name])
+}
+
+model PushToken {
+  id            String   @id @default(cuid())
+  userId        String
+  deviceId      String
+  expoPushToken String
+  platform      String
+  appVersion    String?
+  disabledAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId, expoPushToken])
+  @@index([userId, deviceId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model BlockedUser {
+  id            String   @id @default(cuid())
+  blockerUserId String
+  blockedUserId String
+  createdAt     DateTime @default(now())
+  blocker       User @relation("Blocker", fields: [blockerUserId], references: [id], onDelete: Cascade)
+  blocked       User @relation("Blocked", fields: [blockedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerUserId, blockedUserId])
+}
+
+model Call {
+  id             String     @id @default(cuid())
+  scope          CallScope
+  kind           CallKind   @default(AUDIO)
+  status         CallStatus @default(RINGING)
+  conversationId String?
+  callerUserId   String
+  livekitRoom    String     @unique
+  e2eeKeyVersion Int        @default(1)
+  startedAt      DateTime   @default(now())
+  acceptedAt     DateTime?
+  endedAt        DateTime?
+  caller         User       @relation("CallCaller", fields: [callerUserId], references: [id], onDelete: Cascade)
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  participants   CallParticipant[]
+
+  @@index([callerUserId, startedAt])
+  @@index([conversationId, status])
+}
+
+model CallParticipant {
+  id          String   @id @default(cuid())
+  callId      String
+  userId      String
+  status      CallParticipantStatus @default(INVITED)
+  joinedAt    DateTime?
+  leftAt      DateTime?
+  livekitIdentity String
+  call        Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+  @@index([userId, status])
+}
